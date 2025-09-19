@@ -1,0 +1,7 @@
+pandas
+python-dotenv
+ipykernel
+plotly
+loguru
+click
+boto3

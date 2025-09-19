@@ -1,0 +1,14 @@
+name: base-utils
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pandas
+  - plotly
+  - boto3
+  - click
+  - loguru
+  - ipykernel
+  - python-dotenv
+  - numpy
+
