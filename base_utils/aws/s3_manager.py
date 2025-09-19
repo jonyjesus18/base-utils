@@ -6,8 +6,6 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 import tempfile
-import os
-from pathlib import Path
 
 load_dotenv()
 
