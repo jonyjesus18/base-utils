@@ -6,6 +6,7 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 import tempfile
+import concurrent.futures
 
 load_dotenv()
 
@@ -41,6 +42,75 @@ class S3Manager:
             aws_secret_access_key=aws_secret_key,
         )
         logger.debug(f"S3Manager initialized for region={region}")
+
+    def upload_files_batch(
+        self,
+        bucket: str,
+        source_dir: str,
+        dest_dir: str,
+        max_workers: int = 16,
+        delete_after: bool = False,
+
+    ) -> bool:
+        """
+        Upload all files in a flat local directory to an S3 bucket concurrently.
+
+        Args:
+            bucket (str): The name of the target S3 bucket.
+            source_dir (str): Local directory containing files to upload.
+            dest_dir (str): Destination directory (prefix) in the S3 bucket.
+            max_workers (int): Number of threads for concurrent uploads.
+
+        Returns:
+            bool: True if all uploads succeeded, False otherwise.
+        """
+        if not os.path.isdir(source_dir):
+            logger.error(f"Source directory does not exist: {source_dir}")
+            return False
+
+        # Collect only files directly in the directory (no recursion)
+        files = [
+            (os.path.join(source_dir, fname), os.path.join(dest_dir, fname).replace("\\", "/"))
+            for fname in os.listdir(source_dir)
+            if os.path.isfile(os.path.join(source_dir, fname))
+        ]
+
+        if not files:
+            logger.warning(f"No files found in {source_dir} to upload.")
+            return False
+
+        logger.info(f"Uploading {len(files)} files to s3://{bucket}/{dest_dir} ...")
+
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {
+                executor.submit(self.upload_file, bucket, local, s3): (local, s3)
+                for local, s3 in files
+            }
+            for future in concurrent.futures.as_completed(future_to_file):
+                local, s3 = future_to_file[future]
+                try:
+                    success = future.result()
+                    results.append(success)
+                    if success:
+                        if delete_after:
+                            try:
+                                os.remove(local)
+                                logger.debug(f"Deleted local file after upload: {local}")
+                            except OSError as e:
+                                logger.error(f"Failed to delete {local}: {e}")
+                    else:
+                        logger.error(f"Failed to upload {local} → {s3}")
+                except Exception as e:
+                    logger.error(f"Exception uploading {local} → {s3}: {e}")
+                    results.append(False)
+
+        all_ok = all(results)
+        if all_ok:
+            logger.success("All files uploaded successfully.")
+        else:
+            logger.warning("Some files failed to upload.")
+        return all_ok
 
     def upload_file(
         self,
